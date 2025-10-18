@@ -41,4 +41,6 @@ const app = {
           } : prop
         }
     }
-    export default app;
+window.app = app;
+
+export default app;
