@@ -2,7 +2,7 @@ class DynamicTable {
   constructor(tableId, objectArray, options = {}) {
     this.tableId = tableId;
     this.table = document.getElementById(tableId);
-    if (!this.table) throw new Error(`Fant ikke tabell med id: ${tableId}`);
+    if (!this.table) throw new Error(`Table not found with id: ${tableId}`);
 
     this.options = options;
     this.data = objectArray;
@@ -68,10 +68,12 @@ class DynamicTable {
         input.name = key;
         input.value = key;
         input.setAttribute("contenteditable", "true");
+        input.setAttribute("data-key", key);
         this.applyAttributes(input, this.inputAttr(key, key));
         th.appendChild(input);
       } else {
         th.setAttribute("contenteditable", "true");
+        th.setAttribute("data-key", key);
         th.textContent = key;
       }
 
@@ -86,9 +88,10 @@ class DynamicTable {
     const tbody = document.createElement("tbody");
     this.applyAttributes(tbody, this.attr.tbody());
 
-    this.data.forEach(obj => {
+    this.data.forEach((obj, rowIndex) => {
       const tr = document.createElement("tr");
       this.applyAttributes(tr, this.attr.tr());
+      tr.setAttribute("data-row", rowIndex);
 
       this.headers.forEach(key => {
         const td = document.createElement("td");
@@ -101,10 +104,14 @@ class DynamicTable {
           input.name = key;
           input.value = val;
           input.setAttribute("contenteditable", "true");
+          input.setAttribute("data-key", key);
+          input.setAttribute("data-row", rowIndex);
           this.applyAttributes(input, this.inputAttr(key, val));
           td.appendChild(input);
         } else {
           td.setAttribute("contenteditable", "true");
+          td.setAttribute("data-key", key);
+          td.setAttribute("data-row", rowIndex);
           td.textContent = val;
         }
 
@@ -125,10 +132,6 @@ class DynamicTable {
     this.emit('tableRender', { data: this.data, headers: this.headers, table: this });
   }
 
-  /**
-   * Robust JSON loader that updates table if valid array is parsed.
-   * Returns status object with message and parsed data.
-   */
   loadJson(raw) {
     const res = { msg: "", data: null };
     try {
@@ -165,6 +168,23 @@ class DynamicTable {
     return res;
   }
 
+  // Extract current data from edited table
+  extractTableData() {
+    const rows = this.table.querySelectorAll('tbody tr');
+    const extracted = [];
+
+    rows.forEach(row => {
+      const obj = {};
+      this.headers.forEach(key => {
+        const cell = row.querySelector(`[data-key="${key}"]`);
+        obj[key] = cell ? (cell.value || cell.textContent) : '';
+      });
+      extracted.push(obj);
+    });
+
+    return extracted;
+  }
+
   // Event handling methods
   addEventListener(eventType, callback) {
     if (!this.eventListeners.has(eventType)) {
@@ -192,25 +212,25 @@ class DynamicTable {
   }
 
   setupEventListeners() {
-    // Listen for input changes in editable cells
     this.table.addEventListener('input', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.contentEditable === 'true') {
         this.emit('cellChange', {
           element: e.target,
           value: e.target.value || e.target.textContent,
           key: e.target.getAttribute('data-key'),
+          row: e.target.getAttribute('data-row'),
           table: this
         });
       }
     });
 
-    // Listen for blur events to capture final changes
     this.table.addEventListener('blur', (e) => {
       if (e.target.tagName === 'INPUT' || e.target.contentEditable === 'true') {
         this.emit('cellBlur', {
           element: e.target,
           value: e.target.value || e.target.textContent,
           key: e.target.getAttribute('data-key'),
+          row: e.target.getAttribute('data-row'),
           table: this
         });
       }
@@ -218,53 +238,212 @@ class DynamicTable {
   }
 }
 
+class Storage {
+  constructor({ webhookUrl, storageType = sessionStorage }) {
+    this.session = storageType;
+    this.webhookUrl = webhookUrl;
+  }
+
+  // Store (object/array → array)
+  async set(key, value) {
+    const data = Array.isArray(value) ? value : [value];
+    this.session.setItem(key, JSON.stringify(data));
+    
+    await this.triggerWebhook('insert', key, data);
+  }
+
+  // Get
+  get(key) {
+    const data = this.session.getItem(key);
+    return data ? JSON.parse(data) : null;
+  }
+
+  // Update
+  async update(key, value) {
+    const data = Array.isArray(value) ? value : [value];
+    this.session.setItem(key, JSON.stringify(data));
+    
+    await this.triggerWebhook('update', key, data);
+  }
+
+  // Delete
+  async remove(key) {
+    this.session.removeItem(key);
+    
+    await this.triggerWebhook('delete', key, null);
+  }
+
+  // Clear all
+  async clear() {
+    this.session.clear();
+    
+    await this.triggerWebhook('clear', 'collection', null);
+  }
+
+  // Webhook trigger
+  async triggerWebhook(operation, key, data) {
+    if (!this.webhookUrl) return;
+    
+    try {
+      await fetch(this.webhookUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation,
+          key,
+          data,
+          timestamp: new Date().toISOString()
+        })
+      });
+    } catch (error) {
+      console.error('Webhook error:', error);
+    }
+  }
+
+  // Check if exists
+  exists(key) {
+    return this.session.getItem(key) !== null;
+  }
+}
+
 class App {
-    constructor(document) {
-        this.document = document;
+  constructor(documentRef, storageRef, webhookUrl) {
+    this.document = documentRef;
+    this.storage = new Storage({ webhookUrl, storageType: storageRef });
+    this.dynamicTable = null;
+    this.uiElements = {};
+  }
+
+  ready(callback) {
+    if (this.document.readyState === 'loading') {
+      this.document.addEventListener('DOMContentLoaded', callback);
+    } else {
+      callback();
+    }
+  }
+
+  ui(data = null) {
+    const ids = {
+      import: 'import_json',
+      feedback: 'json_feedback',
+      table: 'data_table'
+    };
+
+    const elements = {
+      import: this.document.getElementById(ids.import),
+      feedback: this.document.getElementById(ids.feedback),
+      table: this.document.getElementById(ids.table)
+    };
+
+    // Validate all required elements exist
+    const allPresent = Object.values(elements).every(el => el !== null);
+    if (!allPresent) {
+      throw new Error(`Missing required UI elements. Check IDs: ${JSON.stringify(ids)}`);
     }
 
-    ready(callback) {
-        this.document.addEventListener("DOMContentLoaded", () => {
-            callback();
-        });
+    this.uiElements = elements;
+
+    // Create DynamicTable if data provided
+    if (data && Array.isArray(data)) {
+      this.dynamicTable = new DynamicTable(ids.table, data, {
+        editableMode: 'input',
+        tableAttr: () => ({ class: 'min-w-full divide-y divide-gray-300' }),
+        theadAttr: () => ({ class: 'bg-gray-200 text-gray-700' }),
+        tbodyAttr: () => ({ class: 'bg-white' }),
+        trAttr: () => ({ class: 'hover:bg-gray-50' }),
+        thAttr: (key) => ({ 
+          class: 'px-4 py-2 text-left font-semibold text-sm',
+          'data-key': key 
+        }),
+        tdAttr: (key, val) => ({ 
+          class: 'px-4 py-2 text-sm text-gray-800',
+          'data-key': key 
+        }),
+        inputAttr: (key, val) => ({
+          class: 'w-full text-sm px-2',
+          style: 'background:none; border:none; outline:none;',
+          'data-key': key
+        })
+      });
+
+      // Listen to table changes and sync with storage
+      this.dynamicTable.addEventListener('cellBlur', async (event) => {
+        const updatedData = this.dynamicTable.extractTableData();
+        await this.storage.update('tableData', updatedData);
+        this.updateFeedback('Data saved to storage');
+      });
+
+      this.dynamicTable.addEventListener('dataChange', async (event) => {
+        await this.storage.set('tableData', event.data);
+        this.updateFeedback('Data loaded and stored');
+      });
     }
 
-    ui(data = null) {
-        const prop = {
-            id: {
-                import: "import_json",
-                feedback: "json_feedback",
-                table: "data_table"
-            },
-            set: {},
-            state: { ok: false }
-        };
+    // Setup import handler
+    this.setupImportHandler();
 
-        prop.set.import = this.document.getElementById(prop.id.import);
-        prop.set.feedback = this.document.getElementById(prop.id.feedback);
-        prop.set.table = this.document.getElementById(prop.id.table);
-        prop.state.ok = Object.values(prop.set).filter(Boolean).length === 3;
+    return {
+      import: elements.import,
+      feedback: elements.feedback,
+      table: this.dynamicTable,
+      storage: this.storage
+    };
+  }
 
-        return prop.state.ok === true ? {
-            help: prop,
-            import: this.document.getElementById(prop.id.import),
-            feedback: this.document.getElementById(prop.id.feedback),
-            table: data ? new DynamicTable(prop.id.table, data, {
-                editableMode: "input",
-                tableAttr: () => ({ class: "min-w-full divide-y divide-gray-300" }),
-                theadAttr: () => ({ class: "bg-gray-200 text-gray-700" }),
-                tbodyAttr: () => ({ class: "bg-white" }),
-                trAttr: () => ({ class: "hover:bg-gray-50" }),
-                thAttr: (key) => ({ class: "px-4 py-2 text-left font-semibold text-sm", "data-key": key }),
-                tdAttr: (key, val) => ({ class: "px-4 py-2 text-sm text-gray-800", "data-key": key }),
-                inputAttr: (key, val) => ({
-                    class: "w-full text-sm px-2",
-                    style: "background:none; border:none; outline:none;",
-                    "data-key": key
-                })
-            }) : null
-        } : prop;
+  setupImportHandler() {
+    if (!this.uiElements.import || !this.dynamicTable) return;
+
+    this.uiElements.import.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        try {
+          const content = event.target.result;
+          const result = this.dynamicTable.loadJson(content);
+          
+          if (result.data) {
+            await this.storage.set('tableData', result.data);
+            this.updateFeedback(`Import successful ${result.msg}`);
+          } else {
+            this.updateFeedback(`Import failed ${result.msg}`);
+          }
+        } catch (error) {
+          this.updateFeedback(`Import error: ${error.message}`);
+        }
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  updateFeedback(message) {
+    if (this.uiElements.feedback) {
+      this.uiElements.feedback.textContent = message;
+      this.uiElements.feedback.style.color = message.includes('error') ? 'red' : 'green';
     }
+  }
+
+  exportTableData() {
+    if (!this.dynamicTable) {
+      throw new Error('No table initialized');
+    }
+    const data = this.dynamicTable.extractTableData();
+    return JSON.stringify(data, null, 2);
+  }
+
+  loadFromStorage(key) {
+    const data = this.storage.get(key);
+    if (!data) {
+      throw new Error(`No data found in storage with key: ${key}`);
+    }
+    if (this.dynamicTable) {
+      this.dynamicTable.data = data;
+      this.dynamicTable.headers = this.dynamicTable.extractHeaders();
+      this.dynamicTable.render();
+    }
+    return data;
+  }
 }
 
 export default App;
