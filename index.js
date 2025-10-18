@@ -1,4 +1,4 @@
-const DynamicTable = require("./DynamicTable");
+import DynamicTable from "./DynamicTable.js";
 const app = {
         ready(callback) {
             document.addEventListener("DOMContentLoaded", () => {
