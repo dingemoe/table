@@ -218,4 +218,4 @@ class DynamicTable {
   }
 }
 
-window.DynamicTable = DynamicTable;
+export default DynamicTable;
