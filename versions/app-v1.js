@@ -297,6 +297,72 @@ class Storage {
   }
 }
 
+class Curl {
+  constructor(url) {
+    this.url = url;
+  }
+
+  insert(options = {}) {
+    const key = options.key || 'tasks';
+    const data = options.data || [
+      { navn: 'Alice', status: 'Aktiv', frist: '2025-10-20' },
+      { navn: 'Bob', status: 'Venter', frist: '2025-10-25' }
+    ];
+    
+    const payload = {
+      operation: 'insert',
+      key,
+      data,
+      timestamp: new Date().toISOString()
+    };
+    return this._buildCurl(payload);
+  }
+
+  update(options = {}) {
+    const key = options.key || 'tasks';
+    const data = options.data || [
+      { navn: 'Alice', status: 'Ferdig', frist: '2025-10-20' }
+    ];
+    
+    const payload = {
+      operation: 'update',
+      key,
+      data,
+      timestamp: new Date().toISOString()
+    };
+    return this._buildCurl(payload);
+  }
+
+  delete(options = {}) {
+    const key = options.key || 'tasks';
+    
+    const payload = {
+      operation: 'delete',
+      key,
+      data: null,
+      timestamp: new Date().toISOString()
+    };
+    return this._buildCurl(payload);
+  }
+
+  clear(options = {}) {
+    const payload = {
+      operation: 'clear',
+      key: 'collection',
+      data: null,
+      timestamp: new Date().toISOString()
+    };
+    return this._buildCurl(payload);
+  }
+
+  _buildCurl(payload) {
+    const json = JSON.stringify(payload, null, 2);
+    return `curl -X POST ${this.url} \\
+  -H "Content-Type: application/json" \\
+  -d '${json}'`;
+  }
+}
+
 class App {
   constructor(documentRef, storageRef = sessionStorage, webhookUrl = null, collectionNameInputId = 'data_collection_name') {
     this.document = documentRef;
@@ -304,6 +370,7 @@ class App {
     this.dynamicTable = null;
     this.uiElements = {};
     this.collectionNameInputId = collectionNameInputId;
+    this.curl = new Curl(webhookUrl);
   }
 
   ready(callback) {
