@@ -1,3 +1,4 @@
+// Bruker global DynamicFlatTable som er lastet først
 const app = {
     ready(callback) {
         document.addEventListener("DOMContentLoaded", () => {
