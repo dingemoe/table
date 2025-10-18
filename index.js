@@ -1,3 +1,4 @@
+const DynamicTable = require("./DynamicTable");
 const app = {
         ready(callback) {
             document.addEventListener("DOMContentLoaded", () => {
@@ -23,7 +24,7 @@ const app = {
             help: prop,
             import: document.getElementById(prop.id.import),
             feedback: document.getElementById(prop.id.feedback),
-            table: data ? new DynamicFlatTable(prop.id.table, data, {
+            table: data ? new DynamicTable(prop.id.table, data, {
                 editableMode: "input",
                 tableAttr: () => ({ class: "min-w-full divide-y divide-gray-300" }),
                 theadAttr: () => ({ class: "bg-gray-200 text-gray-700" }),
