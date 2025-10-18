@@ -168,7 +168,6 @@ class DynamicTable {
     return res;
   }
 
-  // Extract current data from edited table
   extractTableData() {
     const rows = this.table.querySelectorAll('tbody tr');
     const extracted = [];
@@ -185,7 +184,6 @@ class DynamicTable {
     return extracted;
   }
 
-  // Event handling methods
   addEventListener(eventType, callback) {
     if (!this.eventListeners.has(eventType)) {
       this.eventListeners.set(eventType, []);
@@ -244,7 +242,6 @@ class Storage {
     this.webhookUrl = webhookUrl;
   }
 
-  // Store (object/array → array)
   async set(key, value) {
     const data = Array.isArray(value) ? value : [value];
     this.session.setItem(key, JSON.stringify(data));
@@ -252,13 +249,11 @@ class Storage {
     await this.triggerWebhook('insert', key, data);
   }
 
-  // Get
   get(key) {
     const data = this.session.getItem(key);
     return data ? JSON.parse(data) : null;
   }
 
-  // Update
   async update(key, value) {
     const data = Array.isArray(value) ? value : [value];
     this.session.setItem(key, JSON.stringify(data));
@@ -266,21 +261,18 @@ class Storage {
     await this.triggerWebhook('update', key, data);
   }
 
-  // Delete
   async remove(key) {
     this.session.removeItem(key);
     
     await this.triggerWebhook('delete', key, null);
   }
 
-  // Clear all
   async clear() {
     this.session.clear();
     
     await this.triggerWebhook('clear', 'collection', null);
   }
 
-  // Webhook trigger
   async triggerWebhook(operation, key, data) {
     if (!this.webhookUrl) return;
     
@@ -300,18 +292,18 @@ class Storage {
     }
   }
 
-  // Check if exists
   exists(key) {
     return this.session.getItem(key) !== null;
   }
 }
 
 class App {
-  constructor(documentRef, storageRef, webhookUrl) {
+  constructor(documentRef, storageRef = sessionStorage, webhookUrl = null, collectionNameInputId = 'data_collection_name') {
     this.document = documentRef;
     this.storage = new Storage({ webhookUrl, storageType: storageRef });
     this.dynamicTable = null;
     this.uiElements = {};
+    this.collectionNameInputId = collectionNameInputId;
   }
 
   ready(callback) {
@@ -322,28 +314,38 @@ class App {
     }
   }
 
+  getCollectionName() {
+    const input = this.document.getElementById(this.collectionNameInputId);
+    if (!input) {
+      console.warn(`Collection name input not found: ${this.collectionNameInputId}`);
+      return 'defaultCollection';
+    }
+    const value = input.value.trim();
+    return value || 'defaultCollection';
+  }
+
   ui(data = null) {
     const ids = {
       import: 'import_json',
       feedback: 'json_feedback',
-      table: 'data_table'
+      table: 'data_table',
+      collectionName: this.collectionNameInputId
     };
 
     const elements = {
       import: this.document.getElementById(ids.import),
       feedback: this.document.getElementById(ids.feedback),
-      table: this.document.getElementById(ids.table)
+      table: this.document.getElementById(ids.table),
+      collectionName: this.document.getElementById(ids.collectionName)
     };
 
-    // Validate all required elements exist
-    const allPresent = Object.values(elements).every(el => el !== null);
-    if (!allPresent) {
-      throw new Error(`Missing required UI elements. Check IDs: ${JSON.stringify(ids)}`);
+    const corePresent = [elements.import, elements.feedback, elements.table].every(el => el !== null);
+    if (!corePresent) {
+      throw new Error(`Missing required UI elements. Check IDs: import_json, json_feedback, data_table`);
     }
 
     this.uiElements = elements;
 
-    // Create DynamicTable if data provided
     if (data && Array.isArray(data)) {
       this.dynamicTable = new DynamicTable(ids.table, data, {
         editableMode: 'input',
@@ -366,26 +368,27 @@ class App {
         })
       });
 
-      // Listen to table changes and sync with storage
       this.dynamicTable.addEventListener('cellBlur', async (event) => {
+        const collectionName = this.getCollectionName();
         const updatedData = this.dynamicTable.extractTableData();
-        await this.storage.update('tableData', updatedData);
-        this.updateFeedback('Data saved to storage');
+        await this.storage.update(collectionName, updatedData);
+        this.updateFeedback(`💾 Data saved to: ${collectionName}`);
       });
 
       this.dynamicTable.addEventListener('dataChange', async (event) => {
-        await this.storage.set('tableData', event.data);
-        this.updateFeedback('Data loaded and stored');
+        const collectionName = this.getCollectionName();
+        await this.storage.set(collectionName, event.data);
+        this.updateFeedback(`📊 Data loaded in: ${collectionName}`);
       });
     }
 
-    // Setup import handler
     this.setupImportHandler();
 
     return {
       import: elements.import,
       feedback: elements.feedback,
       table: this.dynamicTable,
+      collectionName: elements.collectionName,
       storage: this.storage
     };
   }
@@ -393,34 +396,26 @@ class App {
   setupImportHandler() {
     if (!this.uiElements.import || !this.dynamicTable) return;
 
-    this.uiElements.import.addEventListener('change', (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        try {
-          const content = event.target.result;
-          const result = this.dynamicTable.loadJson(content);
-          
-          if (result.data) {
-            await this.storage.set('tableData', result.data);
-            this.updateFeedback(`Import successful ${result.msg}`);
-          } else {
-            this.updateFeedback(`Import failed ${result.msg}`);
-          }
-        } catch (error) {
-          this.updateFeedback(`Import error: ${error.message}`);
-        }
-      };
-      reader.readAsText(file);
+    this.uiElements.import.addEventListener('input', async (e) => {
+      const raw = e.target.value.trim();
+      if (!raw) return;
+      
+      const result = this.dynamicTable.loadJson(raw);
+      const collectionName = this.getCollectionName();
+      
+      if (result.data) {
+        await this.storage.set(collectionName, result.data);
+        this.updateFeedback(`✅ JSON loaded ${result.msg} → ${collectionName}`);
+      } else {
+        this.updateFeedback(`❌ Parse failed ${result.msg}`);
+      }
     });
   }
 
   updateFeedback(message) {
     if (this.uiElements.feedback) {
       this.uiElements.feedback.textContent = message;
-      this.uiElements.feedback.style.color = message.includes('error') ? 'red' : 'green';
+      this.uiElements.feedback.style.color = message.includes('❌') ? '#ff6b6b' : '#4caf50';
     }
   }
 
@@ -432,15 +427,17 @@ class App {
     return JSON.stringify(data, null, 2);
   }
 
-  loadFromStorage(key) {
-    const data = this.storage.get(key);
+  loadFromStorage(collectionName = null) {
+    const name = collectionName || this.getCollectionName();
+    const data = this.storage.get(name);
     if (!data) {
-      throw new Error(`No data found in storage with key: ${key}`);
+      throw new Error(`No data found in storage with collection: ${name}`);
     }
     if (this.dynamicTable) {
       this.dynamicTable.data = data;
       this.dynamicTable.headers = this.dynamicTable.extractHeaders();
       this.dynamicTable.render();
+      this.updateFeedback(`✅ Loaded from: ${name}`);
     }
     return data;
   }
