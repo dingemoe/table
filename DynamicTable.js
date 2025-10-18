@@ -217,3 +217,5 @@ class DynamicTable {
     }, true);
   }
 }
+
+window.DynamicTable = DynamicTable;
