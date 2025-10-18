@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="no">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chat App - CDN Sample</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body class="bg-gray-100">
+    <div id="app"></div>
+    
+    <script type="module">
+      // Import ChatAppRenderer fra CDN
+      import ChatAppRenderer from 'https://cdn.jsdelivr.net/gh/dingemoe/table@main/render/apps/chat/render.js';
+      
+      // Initialiser renderer
+      const renderer = new ChatAppRenderer({
+        title: 'Dynamic Table Chat - CDN Sample',
+        theme: 'light'
+      });
+      
+      // Render til div#app
+      await renderer.render('app');
+      
+      console.log('✅ Chat App lastet fra CDN og rendret til div#app');
+    </script>
+  </body>
+</html>

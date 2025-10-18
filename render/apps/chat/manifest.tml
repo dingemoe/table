@@ -1,0 +1,103 @@
+# Chat App Manifest
+# Definerer komponenter og versjoner for chat-appen
+
+[app]
+name = "chat"
+version = "1.0.0"
+description = "Dynamic Table Chat Application"
+
+[components]
+# Base URL for alle komponenter - IKKE ENDRE DENNE
+baseUrl = "https://cdn.jsdelivr.net/gh/dingemoe/table@main/versions/v05/"
+
+# Hovedkomponenter
+[components.app]
+source = "app.js"
+version = "v05"
+required = true
+description = "Hovedapplikasjon med DynamicTable og Storage"
+
+[components.chatview]
+source = "chatview.js" 
+version = "v05"
+required = true
+description = "ChatView komponent for kommandogrensesnitt"
+
+[components.renderer]
+source = "render.js"
+version = "v05"
+required = true
+description = "Render system med HtmlRenderer og ComponentInitializer"
+url = "https://cdn.jsdelivr.net/gh/dingemoe/table@main/render/apps/chat/render.js"
+target_container = "div#app"
+init_method = "render"
+
+# Regler for versjonshåndtering
+[rules]
+# AI RULE: ALDRI endre baseUrl - kun bruk CDN-versjoner
+baseUrl_immutable = true
+# Alle komponenter må bruke samme versjon (v05)
+version_consistency = "v05"
+# Kun CDN-kilder tillatt, ikke lokale filer
+source_type = "cdn_only"
+
+[import_template]
+# Template for hvordan komponenter skal importeres
+javascript = """
+const baseUrl = '{baseUrl}';
+import App from baseUrl + '{app.source}';
+import ChatView from baseUrl + '{chatview.source}';
+import ChatAppRenderer from '{renderer.url}';
+"""
+
+[usage_example]
+# Eksempel på hvordan render.js brukes
+javascript = """
+// Bruk av render system fra CDN
+import ChatAppRenderer from 'https://cdn.jsdelivr.net/gh/dingemoe/table@main/render/apps/chat/render.js';
+
+const renderer = new ChatAppRenderer({
+  title: 'Min Chat App',
+  theme: 'dark'
+});
+
+// Render til div#app container
+await renderer.render('app');
+
+// Eller få HTML som string
+const html = renderer.getDocumentHtml();
+"""
+
+[initialization]
+# Spesifikk initialisering for div#app
+target = "div#app"
+method = "render"
+auto_init = true
+description = "Automatisk initialisering mot div#app container"
+
+[samples]
+# Sample templates som bruker render.js fra CDN
+description = "Eksempel templates for bruk av ChatAppRenderer"
+
+[samples.cdn_html]
+# HTML template for CDN bruk
+path = "tmp/cdn/index.html"
+description = "Komplett HTML side som bruker ChatAppRenderer fra CDN"
+renderer_url = "https://cdn.jsdelivr.net/gh/dingemoe/table@main/render/apps/chat/render.js"
+target_container = "div#app"
+theme = "light"
+
+[samples.deno_server]
+# Deno server template
+path = "tmp/deno/main.ts"
+description = "Deno server som serverer ChatAppRenderer"
+renderer_url = "https://cdn.jsdelivr.net/gh/dingemoe/table@main/render/apps/chat/render.js"
+target_container = "div#app"
+theme = "dark"
+
+[validation]
+# Validering av manifest
+required_components = ["app", "chatview", "renderer"]
+allowed_versions = ["v05"]
+base_domain = "cdn.jsdelivr.net"
+sample_paths = ["tmp/cdn/index.html", "tmp/deno/main.ts"]
