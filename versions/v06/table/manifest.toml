@@ -1,0 +1,205 @@
+# manifest.toml
+# Modul: Table – dynamisk HTML-tabell med usynlig rad-ID, kolleksjonsstøtte og utvidede callbacks
+
+[package]
+name        = "Table"
+version     = "1.1.0"
+language    = "javascript"
+module_type = "esmodule"
+entry       = "Table.js"
+summary     = "Dynamisk tabell som genererer usynlige 4-tegns rad-IDer, merker rader med collection, og emitterer identitet i callbacks."
+license     = "MIT"
+
+[constructor]
+args = [
+  { name = "tableId",        type = "string",   required = true,  doc = "DOM-id for <table>" },
+  { name = "objectArray",    type = "object[]", required = true,  doc = "Liste av objekter som blir tabellrader" },
+  { name = "options",        type = "object",   required = false, doc = "Tilpasning (attributter, callbacks, ID/collection-oppsett)" }
+]
+
+[defaults]
+editableMode = "cell"
+inputAttr.style = "background:none; border:none; outline:none;"
+# Nøkkel for intern rad-ID (usynlig)
+idKey = "_rid"
+# Hvordan finne collection-navn
+collectionKey   = null     # Feltnavn i radobjekt som angir collection (hvis finnes)
+collectionName  = null     # Fast collection-navn (fallback hvis collectionKey ikke finnes)
+# ID-generering
+id.length   = 4
+id.alphabet = "BASE36_UPPER"   # [0-9A-Z], kan filtreres fra tvetydige tegn implementasjonsmessig
+id.collision_max_retries = 8   # Forsøk på ny generering ved kollisjon før feilmelding
+
+[options]
+# Attributt-funksjoner (kan returnere objekt eller 'key="val"' streng)
+tableAttr = { type = "function():object|string",  doc = "Attributter for <table>" }
+theadAttr = { type = "function():object|string",  doc = "Attributter for <thead>" }
+tbodyAttr = { type = "function():object|string",  doc = "Attributter for <tbody>" }
+trAttr    = { type = "function():object|string",  doc = "Attributter for <tr>" }
+thAttr    = { type = "function(key):object|string", doc = "Attributter for <th>" }
+tdAttr    = { type = "function(key,val):object|string", doc = "Attributter for <td>" }
+inputAttr = { type = "function(key,val):object|string", doc = "Attributter for <input> når editableMode='input'" }
+
+# Visuell transform av celleverdi
+onCellRender = { type = "function(key,val):any", doc = "Transformerer celleverdi før rendering; påvirker ikke rådata" }
+
+[identity]
+# Kontrakt for identitet
+hidden_row_id = { key = "_rid", visible_in_ui = false, editable = false, included_in_headers = false }
+collection_resolution_order = ["row[collectionKey]", "options.collectionName", null]
+tr_data_attributes = ["data-id", "data-collection"]
+# Dom-refleksjon
+tr.data-id        = "row[idKey]"
+tr.data-collection = "row[collectionKey] || options.collectionName || null"
+
+[dom.behavior]
+replaces_existing_thead = true
+replaces_existing_tbody = true
+header_cells_contenteditable_when_mode_cell = true
+header_inputs_when_mode_input = true
+data_cells_contenteditable_when_mode_cell = true
+data_inputs_when_mode_input = true
+adds_action_column = true
+action_header = { name = "Action", class = "px-4 py-2 text-left font-semibold text-sm bg-red-100" }
+action_button = { label = "Delete", class = "px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs" }
+
+[rendering.rules]
+# _rid skal ikke dukke opp i headers eller rader
+exclude_keys_from_headers = ["_rid"]
+exclude_keys_from_cells   = ["_rid"]
+# Uavhengig av exclude, _rid finnes alltid i data-objekt og på <tr> som data-id
+propagate_identity_to_dom = true
+
+[methods]
+# Kjerne
+render = { 
+  args = [], 
+  returns = "void", 
+  doc = "Bygger tabellen (thead+tbody), sikrer at alle rader har _rid, setter data-id/data-collection på <tr>, og emitter 'tableRender'." 
+}
+
+renderHeader = { 
+  args = [], 
+  returns = "void", 
+  doc = "Bygger <thead> basert på synlige headers (utelukker idKey)." 
+}
+
+renderRows = { 
+  args = [], 
+  returns = "void", 
+  doc = "Bygger <tbody> med celler (utelukker idKey) og action-kolonne; skriver data-id/data-collection på <tr>." 
+}
+
+loadJson = { 
+  args = ["raw: string"], 
+  returns = "{ msg: string, data: object[]|null }", 
+  doc = "Parser JSON eller lenient JSON, fyller manglende _rid, rerender, og emitter 'dataChange'." 
+}
+
+extractTableData = { 
+  args = [], 
+  returns = "object[]", 
+  doc = "Leser ut radobjekter fra DOM etter headers; idKey (_rid) beholdes i resultatet men vises ikke i UI." 
+}
+
+deleteRow = { 
+  args = ["rowIndex: number"], 
+  returns = "void", 
+  doc = "Fjerner rad, rerender, og emitter 'rowDeleted' (inkluderer id og collection)." 
+}
+
+# Identitetshjelp
+ensureRowIds = {
+  args = [], 
+  returns = "void",
+  doc = "Garanterer at alle data-rader har gyldig _rid (4 tegn); genererer ved behov med kollisjonssjekk."
+}
+
+generateRowId = {
+  args = [], 
+  returns = "string",
+  doc = "Genererer en ny 4-tegns ID basert på id.alphabet; kall er kollisjonssjekket av ensureRowIds()."
+}
+
+getRowIdentity = {
+  args = ["rowIndex: number"],
+  returns = "{ id: string, collection: string|null }",
+  doc = "Returnerer identitet for gitt rad fra data og/eller <tr>-attributter."
+}
+
+addEventListener = { 
+  args = ["eventType: string", "callback: function"], 
+  returns = "void", 
+  doc = "Registrerer callback for hendelser." 
+}
+
+removeEventListener = { 
+  args = ["eventType: string", "callback: function"], 
+  returns = "void", 
+  doc = "Fjerner en tidligere registrert callback." 
+}
+
+emit = { 
+  args = ["eventType: string", "data: any"], 
+  returns = "void", 
+  doc = "Kjører alle callbacks registrert for hendelsen." 
+}
+
+[callbacks]
+# Alle payloads inkluderer identitet:
+# id: 4-tegns _rid, collection: string|null, rowIndex: number
+
+tableRender = { 
+  args = ["data: object[]", "headers: string[]", "table: Table"], 
+  doc  = "Etter render(). Merk at hver rad i data har _rid." 
+}
+
+dataChange = { 
+  args = ["data: object[]", "source: 'json'|'json-converted'", "table: Table"], 
+  doc  = "Etter loadJson() og ensureRowIds(). Alle rader har _rid." 
+}
+
+cellChange = { 
+  args = ["element: HTMLElement", "value: string", "key: string", "rowIndex: number", "id: string", "collection: string|null", "table: Table"], 
+  doc  = "Ved input/typing i celle. Inkluderer stabil id og collection for integrasjoner." 
+}
+
+cellBlur = { 
+  args = ["element: HTMLElement", "value: string", "key: string", "rowIndex: number", "id: string", "collection: string|null", "table: Table"], 
+  doc  = "Når celle mister fokus. Inkluderer stabil id og collection." 
+}
+
+deleteRow = { 
+  args = ["rowIndex: number", "id: string", "collection: string|null", "table: Table"], 
+  doc  = "Når Delete-knapp trykkes (før sletting). Gir identitet for bekreftelse/backend." 
+}
+
+rowDeleted = { 
+  args = ["rowIndex: number", "id: string", "collection: string|null", "data: object[]", "table: Table"], 
+  doc  = "Etter faktisk sletting og rerender. Inkluderer identitet for opprydding i integrasjoner." 
+}
+
+[parsing]
+accepts_valid_json_arrays = true
+lenient_key_unquoted_fix  = true
+lenient_single_quote_fix  = true
+on_fail_msg               = "(failed)"
+on_success_msgs           = ["(parsed)","(converted, parsed)"]
+
+[security_notes]
+# _rid er usynlig i UI og ikke-redigerbar.
+# Celleinnhold escapes ikke automatisk; konsument bør sikre mot XSS der det er nødvendig.
+contenteditable_can_inject_html = true
+advise_sanitization             = true
+
+[testing.checklist]
+has_table_in_dom_before_construct = true
+ensures_hidden_ids_for_all_rows   = true
+id_is_4_chars_and_unique          = true
+ids_persist_across_rerenders      = true
+collection_present_when_available = true
+callbacks_include_identity        = true
+exclude_id_from_headers_and_cells = true
+rebuilds_on_delete                = true
+fires_events_on_input_and_blur    = true
+replaces_thead_tbody_safely       = true

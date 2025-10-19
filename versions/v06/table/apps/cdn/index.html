@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="no">
+<head>
+  <meta charset="UTF-8">
+  <title>Eksempel med Table.js</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-6">
+
+  <h1 class="text-2xl font-bold mb-4">Bruk av Table.js</h1>
+
+  <!-- Tom tabell, Table.js fyller inn thead + tbody -->
+  <table id="data_table" class="min-w-full border border-gray-300 rounded bg-white shadow"></table>
+
+  <div id="log" class="mt-6 p-4 bg-gray-200 rounded font-mono text-sm"></div>
+
+  <script type="module">
+    import Table from '../../index.js';
+
+    // Eksempeldata
+    const data = [
+      { name: "Ada", email: "ada@example.com", role: "Engineer" },
+      { name: "Lin", email: "lin@example.com", role: "Designer" },
+      { name: "Nils", email: "nils@example.com", role: "PM" }
+    ];
+
+    // Instansier tabellen
+    const table = new Table("data_table", data, {
+      collectionName: "users",
+      editableMode: "input",
+      tableAttr: () => ({ class: "min-w-full divide-y divide-gray-300" }),
+      theadAttr: () => ({ class: "bg-gray-50" }),
+      tbodyAttr: () => ({ class: "divide-y divide-gray-200" }),
+      thAttr: (key) => ({ class: "px-4 py-2 text-left font-semibold text-sm" }),
+      tdAttr: (key, val) => ({ class: "px-4 py-2 text-sm" })
+    });
+
+    // Enkel logger
+    function log(msg) {
+      const logDiv = document.getElementById("log");
+      logDiv.innerHTML += msg + "<br>";
+    }
+
+    // Event-lyttinger
+    table.addEventListener("cellChange", ({ key, value, id, collection }) => {
+      log(`cellChange → key=${key}, value=${value}, id=${id}, collection=${collection}`);
+    });
+
+    table.addEventListener("cellBlur", ({ key, value, id }) => {
+      log(`cellBlur → ${id} (${key}=${value})`);
+    });
+
+    table.addEventListener("deleteRow", ({ id }) => {
+      log(`deleteRow → Bekreft sletting av id=${id}`);
+      // du kan evt. kalle table.deleteRow(rowIndex) manuelt her etter bekreftelse
+    });
+
+    table.addEventListener("rowDeleted", ({ id }) => {
+      log(`rowDeleted → id=${id} slettet`);
+    });
+
+    table.addEventListener("tableRender", ({ data }) => {
+      log(`tableRender → ${data.length} rader`);
+    });
+  </script>
+</body>
+</html>
