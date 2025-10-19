@@ -12,6 +12,7 @@
   <!-- Tom tabell, Table.js fyller inn thead + tbody -->
   <table id="data_table" class="min-w-full border border-gray-300 rounded bg-white shadow"></table>
 
+
   <div id="log" class="mt-6 p-4 bg-gray-200 rounded font-mono text-sm"></div>
 
   <script type="module">
@@ -28,6 +29,17 @@
     const table = new Table("data_table", data, {
       collectionName: "users",
       editableMode: "input",
+      globalColumns: {
+        index: true,
+        select: true,
+        checked: true
+      },
+      selectMode: "multiple", // "multiple" | "single"
+      expandedView: {
+        enabled: true,
+        direction: "bottom", // "bottom" | "right"
+        mobileBreakpoint: 768
+      },
       tableAttr: () => ({ class: "min-w-full divide-y divide-gray-300" }),
       theadAttr: () => ({ class: "bg-gray-50" }),
       tbodyAttr: () => ({ class: "divide-y divide-gray-200" }),
@@ -50,9 +62,9 @@
       log(`cellBlur → ${id} (${key}=${value})`);
     });
 
-    table.addEventListener("deleteRow", ({ id }) => {
-      log(`deleteRow → Bekreft sletting av id=${id}`);
-      // du kan evt. kalle table.deleteRow(rowIndex) manuelt her etter bekreftelse
+    table.addEventListener("deleteRow", ({ rowIndex, id }) => {
+      log(`deleteRow → Sletter rad med id=${id}`);
+      table.deleteRow(rowIndex);
     });
 
     table.addEventListener("rowDeleted", ({ id }) => {
@@ -61,6 +73,100 @@
 
     table.addEventListener("tableRender", ({ data }) => {
       log(`tableRender → ${data.length} rader`);
+      // Show the generated IDs with count numbers
+      data.forEach((row, index) => {
+        log(`Row ${index + 1}: ID = ${row._rid}`);
+      });
+    });
+
+    table.addEventListener("collectionNameChange", ({ collectionName }) => {
+      log(`collectionNameChange → Tabellnavn endret til: ${collectionName}`);
+    });
+
+    // Global column events
+    table.addEventListener("rowActivated", ({ rowIndex, id, data }) => {
+      log(`rowActivated → Rad ${rowIndex + 1} aktivert (ID: ${id}, Navn: ${data.name})`);
+    });
+
+    table.addEventListener("rowSelected", ({ rowIndex, id, selected, selectedItems }) => {
+      log(`rowSelected → Rad ${rowIndex + 1} ${selected ? 'valgt' : 'fravalgt'} (ID: ${id}). Totalt valgt: ${selectedItems.length}`);
+    });
+
+    table.addEventListener("selectionChanged", ({ selectedItems, selectedCount }) => {
+      log(`selectionChanged → ${selectedCount} rader valgt: [${selectedItems.join(', ')}]`);
+    });
+
+    table.addEventListener("singleRowSelected", ({ rowIndex, id, data, previousIndex }) => {
+      log(`singleRowSelected → Rad ${rowIndex + 1} valgt (ID: ${id}, Navn: ${data.name}). Forrige: ${previousIndex + 1}`);
+    });
+
+    table.addEventListener("rowChecked", ({ rowIndex, id, checked, data }) => {
+      log(`rowChecked → Rad ${rowIndex + 1} ${checked ? 'sjekket' : 'avsjekket'} (ID: ${id}, Navn: ${data.name})`);
+    });
+
+    // Settings dropdown events
+    table.addEventListener("rowAdded", ({ row, rowIndex }) => {
+      log(`rowAdded → Ny rad lagt til på index ${rowIndex}: ${row.name}`);
+    });
+
+    table.addEventListener("showSelectedItems", ({ selectedItems, selectedCount }) => {
+      log(`showSelectedItems → Valgte rader: [${selectedItems.join(', ')}] (${selectedCount} stk)`);
+    });
+
+    table.addEventListener("showCheckedItems", ({ checkedRows, checkedCount }) => {
+      log(`showCheckedItems → Sjekket rader: ${checkedCount} stk - ${checkedRows.map(row => row.name).join(', ')}`);
+    });
+
+    table.addEventListener("selectionModeChanged", ({ mode }) => {
+      log(`selectionModeChanged → Byttet til ${mode} selection mode`);
+    });
+
+    table.addEventListener("globalColumnToggled", ({ columnKey, enabled }) => {
+      log(`globalColumnToggled → ${columnKey} kolonne ${enabled ? 'aktivert' : 'deaktivert'}`);
+    });
+
+    // Expanded view events
+    table.addEventListener("expandedViewOpened", ({ direction }) => {
+      log(`expandedViewOpened → Utvidet visning åpnet (${direction})`);
+    });
+
+    table.addEventListener("expandedViewClosed", () => {
+      log(`expandedViewClosed → Utvidet visning lukket`);
+    });
+
+    // Row sheet events
+    table.addEventListener("rowSheetOpened", ({ rowIndex, id, rowData }) => {
+      log(`rowSheetOpened → Rad ${rowIndex + 1} skjema åpnet (ID: ${id})`);
+    });
+
+    table.addEventListener("rowSheetClosed", ({ rowIndex, id }) => {
+      log(`rowSheetClosed → Rad ${rowIndex + 1} skjema lukket (ID: ${id})`);
+    });
+
+    table.addEventListener("rowFieldAutoSaved", ({ rowIndex, id, key, value }) => {
+      log(`rowFieldAutoSaved → Rad ${rowIndex + 1}: ${key} = "${value}" (ID: ${id})`);
+    });
+
+    // Tab and task events
+    table.addEventListener("tabChanged", ({ activeTab }) => {
+      log(`tabChanged → Byttet til ${activeTab} tab`);
+    });
+
+    table.addEventListener("taskAdded", ({ task, totalTasks }) => {
+      log(`taskAdded → Ny oppgave: ${task.description} (Totalt: ${totalTasks})`);
+    });
+
+    // Worker events
+    table.addEventListener("workerSaved", ({ worker, isNew }) => {
+      log(`workerSaved → ${isNew ? 'Ny' : 'Oppdatert'} worker: ${worker.name} (${worker.type})`);
+    });
+
+    table.addEventListener("workerToggled", ({ worker, enabled }) => {
+      log(`workerToggled → Worker "${worker.name}" ${enabled ? 'aktivert' : 'deaktivert'}`);
+    });
+
+    table.addEventListener("workerDeleted", ({ worker }) => {
+      log(`workerDeleted → Worker "${worker.name}" slettet`);
     });
   </script>
 </body>
