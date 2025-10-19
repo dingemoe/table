@@ -62,12 +62,18 @@ class Table {
 
     // Console system
     this.console = null;
-    this.activeConsoleTab = 'runner'; // 'runner' | 'controller'
+    this.activeConsoleTab = 'runner'; // 'runner' | 'controller' | 'tasks' | 'workers'
     this.controllerData = [];
     this.consoleLogs = {
       delegater: [],
       actions: [],
       responses: []
+    };
+    this.activityCounters = {
+      runner: 0,
+      controller: 0,
+      tasks: 0,
+      workers: 0
     };
 
     this.initAttributes();
@@ -931,7 +937,7 @@ class Table {
       
       // Expand row button
       const expandBtn = document.createElement("button");
-      expandBtn.innerHTML = "↗️";
+      expandBtn.innerHTML = '<iconify-icon icon="line-md:arrow-open-right" width="14" height="14"></iconify-icon>';
       expandBtn.setAttribute("data-row", rowIndex);
       expandBtn.setAttribute("title", "Utvid rad");
       expandBtn.setAttribute(
@@ -944,7 +950,7 @@ class Table {
       
       // Delete button
       const deleteBtn = document.createElement("button");
-      deleteBtn.textContent = "🗑️";
+      deleteBtn.innerHTML = '<iconify-icon icon="line-md:remove" width="14" height="14"></iconify-icon>';
       deleteBtn.setAttribute("data-row", rowIndex);
       deleteBtn.setAttribute("title", "Slett rad");
       deleteBtn.setAttribute(
@@ -1495,6 +1501,9 @@ class Table {
   async executeHandler(handlerConfig, trigger, eventData) {
     const { url, method, headers, payload, auth } = handlerConfig;
 
+    // Process URL template with event data
+    const processedUrl = this.processPayloadTemplate({ url }, trigger, eventData).url;
+
     // Process payload template with event data
     const processedPayload = this.processPayloadTemplate(payload, trigger, eventData);
 
@@ -1502,7 +1511,7 @@ class Table {
     const requestHeaders = { ...headers };
     this.applyAuthentication(requestHeaders, auth);
 
-    const response = await fetch(url, {
+    const response = await fetch(processedUrl, {
       method: method || 'POST',
       headers: requestHeaders,
       body: JSON.stringify(processedPayload)
@@ -1518,6 +1527,9 @@ class Table {
   async executeController(controllerConfig, trigger, eventData, handlerResult) {
     const { url, method, headers, query, auth, retryCount, timeout } = controllerConfig;
 
+    // Process URL template with event data
+    const processedUrl = this.processPayloadTemplate({ url }, trigger, eventData).url;
+
     // Build headers with authentication
     const requestHeaders = { ...headers };
     this.applyAuthentication(requestHeaders, auth);
@@ -1525,7 +1537,7 @@ class Table {
     let lastError;
     for (let attempt = 0; attempt < (retryCount || 3); attempt++) {
       try {
-        let requestUrl = url;
+        let requestUrl = processedUrl;
         let requestOptions = {
           method: method || 'GET',
           headers: requestHeaders
@@ -1668,6 +1680,25 @@ class Table {
     processed = processed.replace(/\{\{timestamp\}\}/g, new Date().toISOString());
     processed = processed.replace(/\{\{tableId\}\}/g, this.tableId);
     processed = processed.replace(/\{\{collectionName\}\}/g, this.options.collectionName || '');
+    
+    // Add row-specific variables if available
+    if (eventData && eventData.rowData) {
+      const rowData = eventData.rowData;
+      // Replace {{rowId}} if available
+      if (rowData.id) {
+        processed = processed.replace(/\{\{rowId\}\}/g, rowData.id);
+      }
+      // Replace individual field values like {{name}}, {{email}}, etc.
+      Object.keys(rowData).forEach(key => {
+        const regex = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+        processed = processed.replace(regex, rowData[key] || '');
+      });
+    }
+    
+    // Add row index if available
+    if (eventData && typeof eventData.rowIndex !== 'undefined') {
+      processed = processed.replace(/\{\{rowIndex\}\}/g, eventData.rowIndex);
+    }
 
     return JSON.parse(processed);
   }
@@ -1678,30 +1709,42 @@ class Table {
   }
 
   // ------------------------------ Console System ------------------------------
+  createIcon(iconName, size = 16) {
+    return `<iconify-icon icon="${iconName}" width="${size}" height="${size}" class="inline-block mr-1" style="vertical-align: -2px;"></iconify-icon>`;
+  }
+
   initConsole() {
-    // Create console container
+    // Create console container with fixed height
     const consoleContainer = document.createElement('div');
-    consoleContainer.className = 'fixed bottom-0 left-0 right-0 h-80 bg-gray-900/80 backdrop-blur-md border-t border-gray-700/50 z-50';
+    consoleContainer.className = 'fixed bottom-0 left-0 right-0 bg-black/90 backdrop-blur-md border-t border-gray-800/50 z-50 rounded-t-xl overflow-hidden';
     consoleContainer.style.backdropFilter = 'blur(12px)';
+    consoleContainer.style.boxShadow = '0 -10px 25px -5px rgba(0, 0, 0, 0.3), 0 -4px 6px -2px rgba(0, 0, 0, 0.1)';
+    consoleContainer.style.willChange = 'height, transform';
+    consoleContainer.style.height = '300px'; // Fixed height
     consoleContainer.setAttribute('id', 'table-console');
 
     // Console header with tabs
     const consoleHeader = document.createElement('div');
-    consoleHeader.className = 'flex items-center justify-between px-4 py-2 bg-gray-800/50 border-b border-gray-700/50';
+    consoleHeader.className = 'flex items-center justify-between px-4 py-2 bg-black/70 border-b border-gray-800/50 rounded-t-xl';
 
     // Tab navigation
     const tabNav = document.createElement('div');
     tabNav.className = 'flex items-center space-x-1';
 
-    const runnerTab = this.createConsoleTab('runner', '🏃 Runner', this.activeConsoleTab === 'runner');
-    const controllerTab = this.createConsoleTab('controller', '🎯 Controller', this.activeConsoleTab === 'controller');
+    const runnerTab = this.createConsoleTab('runner', this.createIcon('line-md:play-filled', 18), this.activeConsoleTab === 'runner');
+    const controllerTab = this.createConsoleTab('controller', this.createIcon('line-md:check-list-3', 18), this.activeConsoleTab === 'controller');
+    const tasksTab = this.createConsoleTab('tasks', this.createIcon('line-md:list-3', 18), this.activeConsoleTab === 'tasks');
+    const workersTab = this.createConsoleTab('workers', this.createIcon('line-md:cog-loop', 18), this.activeConsoleTab === 'workers');
 
     tabNav.appendChild(runnerTab);
     tabNav.appendChild(controllerTab);
+    tabNav.appendChild(tasksTab);
+    tabNav.appendChild(workersTab);
 
     const toggleBtn = document.createElement('button');
-    toggleBtn.className = 'text-gray-400 hover:text-green-400 transition-colors';
-    toggleBtn.innerHTML = '▼';
+    toggleBtn.className = 'text-gray-400 hover:text-green-400 transition-colors p-2 rounded hover:bg-green-500/10';
+    toggleBtn.innerHTML = '<iconify-icon icon="line-md:chevron-down" width="18" height="18"></iconify-icon>';
+    toggleBtn.setAttribute('title', 'Toggle Console (ESC)');
     toggleBtn.addEventListener('click', () => {
       this.toggleConsole();
     });
@@ -1709,9 +1752,9 @@ class Table {
     consoleHeader.appendChild(tabNav);
     consoleHeader.appendChild(toggleBtn);
 
-    // Console content container
+    // Console content container (collapsible part) with scrolling
     const consoleContent = document.createElement('div');
-    consoleContent.className = 'h-full';
+    consoleContent.className = 'console-body h-full overflow-y-auto';
     consoleContent.setAttribute('id', 'console-content');
 
     // Runner view (3-panel split view)
@@ -1733,19 +1776,55 @@ class Table {
     controllerView.setAttribute('data-console-view', 'controller');
     controllerView.style.display = this.activeConsoleTab === 'controller' ? 'block' : 'none';
 
+    // Tasks view
+    const tasksView = this.createConsoleTasksView();
+    tasksView.setAttribute('data-console-view', 'tasks');
+    tasksView.style.display = this.activeConsoleTab === 'tasks' ? 'block' : 'none';
+
+    // Workers view
+    const workersView = this.createConsoleWorkersView();
+    workersView.setAttribute('data-console-view', 'workers');
+    workersView.style.display = this.activeConsoleTab === 'workers' ? 'block' : 'none';
+
     consoleContent.appendChild(runnerView);
     consoleContent.appendChild(controllerView);
+    consoleContent.appendChild(tasksView);
+    consoleContent.appendChild(workersView);
 
     consoleContainer.appendChild(consoleHeader);
     consoleContainer.appendChild(consoleContent);
 
-    // Add to page
+    // Add minimal CSS for badges
+    const style = document.createElement('style');
+    style.textContent = `
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      .activity-badge {
+        animation-fill-mode: both;
+        background: #ef4444;
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Add to page with initial animation
+    consoleContainer.style.transform = 'translateY(100%)';
+    consoleContainer.style.transition = 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)';
     document.body.appendChild(consoleContainer);
+    
+    // Animate in
+    setTimeout(() => {
+      consoleContainer.style.transform = 'translateY(0)';
+    }, 100);
     
     this.console = consoleContainer;
 
     // Setup console event listeners
     this.setupConsoleListeners();
+    
+    // Setup ESC key listener for console toggle
+    this.setupConsoleKeyboardShortcuts();
   }
 
   createDelegaterPanel() {
@@ -1753,11 +1832,11 @@ class Table {
     panel.className = 'flex-1 border-r border-gray-700/50 overflow-hidden';
 
     const header = document.createElement('div');
-    header.className = 'px-3 py-2 bg-gray-800/30 border-b border-gray-700/50';
+    header.className = 'px-3 py-2 bg-black/50 border-b border-gray-800/50';
     
     const title = document.createElement('h4');
-    title.className = 'text-xs font-medium text-green-400 uppercase tracking-wide';
-    title.textContent = '🌳 Delegater';
+    title.className = 'text-sm font-medium text-green-400 flex items-center';
+    title.innerHTML = this.createIcon('line-md:account-small', 16) + '<span class="ml-2">Delegater</span>';
 
     const content = document.createElement('div');
     content.className = 'p-3 h-full overflow-y-auto font-mono text-xs text-green-300';
@@ -1778,11 +1857,11 @@ class Table {
     panel.className = 'flex-1 border-r border-gray-700/50 overflow-hidden';
 
     const header = document.createElement('div');
-    header.className = 'px-3 py-2 bg-gray-800/30 border-b border-gray-700/50';
+    header.className = 'px-3 py-2 bg-black/50 border-b border-gray-800/50';
     
     const title = document.createElement('h4');
-    title.className = 'text-xs font-medium text-green-400 uppercase tracking-wide';
-    title.textContent = '⚙️ Actions';
+    title.className = 'text-sm font-medium text-green-400 flex items-center';
+    title.innerHTML = this.createIcon('line-md:cog-loop', 16) + '<span class="ml-2">Actions</span>';
 
     const content = document.createElement('div');
     content.className = 'p-3 h-full overflow-y-auto font-mono text-xs text-green-300';
@@ -1803,11 +1882,11 @@ class Table {
     panel.className = 'flex-1 overflow-hidden';
 
     const header = document.createElement('div');
-    header.className = 'px-3 py-2 bg-gray-800/30 border-b border-gray-700/50';
+    header.className = 'px-3 py-2 bg-black/50 border-b border-gray-800/50';
     
     const title = document.createElement('h4');
-    title.className = 'text-xs font-medium text-green-400 uppercase tracking-wide';
-    title.textContent = '📡 Responses';
+    title.className = 'text-sm font-medium text-green-400 flex items-center';
+    title.innerHTML = this.createIcon('line-md:cloud-download-outline-loop', 16) + '<span class="ml-2">Responses</span>';
 
     const content = document.createElement('div');
     content.className = 'p-3 h-full overflow-y-auto font-mono text-xs text-green-300';
@@ -1823,21 +1902,43 @@ class Table {
     return panel;
   }
 
-  createConsoleTab(tabId, label, isActive) {
+  createConsoleTab(tabId, icon, isActive) {
     const tab = document.createElement('button');
-    tab.className = `px-3 py-1 text-sm font-medium rounded transition-colors ${
+    tab.className = `relative px-3 py-2 rounded transition-colors ${
       isActive 
-        ? 'bg-green-500/20 text-green-400 border border-green-500/30' 
-        : 'text-gray-400 hover:text-green-400 hover:bg-green-500/10'
+        ? 'bg-green-500/20 text-green-400' 
+        : 'text-gray-500 hover:text-green-400 hover:bg-green-500/10'
     }`;
-    tab.textContent = label;
+    
+    // Icon only
+    tab.innerHTML = icon;
+    
+    // Create minimal activity badge
+    const badge = document.createElement('span');
+    badge.className = 'activity-badge absolute -top-1 -right-1 w-4 h-4 text-xs font-bold text-white bg-red-500 rounded-full transform scale-0 transition-all duration-200 flex items-center justify-center';
+    badge.setAttribute('data-tab-badge', tabId);
+    badge.textContent = '';
+    badge.style.fontSize = '9px';
+    
+    tab.appendChild(badge);
     tab.setAttribute('data-console-tab', tabId);
+    tab.setAttribute('title', this.getTabTitle(tabId));
     
     tab.addEventListener('click', () => {
       this.switchConsoleTab(tabId);
     });
     
     return tab;
+  }
+
+  getTabTitle(tabId) {
+    const titles = {
+      runner: 'Runner',
+      controller: 'Controller', 
+      tasks: 'Tasks',
+      workers: 'Workers'
+    };
+    return titles[tabId] || tabId;
   }
 
   switchConsoleTab(tabId) {
@@ -1867,6 +1968,13 @@ class Table {
     if (tabId === 'controller') {
       this.triggerControllerRequests();
     }
+    
+    // Reset badge when switching to active tab
+    if (tabId === this.activeConsoleTab) {
+      setTimeout(() => {
+        this.resetActivityBadge(tabId);
+      }, 1000);
+    }
   }
 
   createControllerView() {
@@ -1878,12 +1986,12 @@ class Table {
     header.className = 'flex items-center justify-between mb-4';
 
     const title = document.createElement('h3');
-    title.className = 'text-lg font-medium text-green-400';
-    title.textContent = 'Controller Data Comparison';
+    title.className = 'text-lg font-medium text-green-400 flex items-center';
+    title.innerHTML = this.createIcon('line-md:check-list-3', 18) + '<span class="ml-2">Controller</span>';
 
     const refreshBtn = document.createElement('button');
-    refreshBtn.className = 'px-3 py-1 bg-green-500/20 text-green-400 border border-green-500/30 rounded text-sm hover:bg-green-500/30 transition-colors';
-    refreshBtn.textContent = '🔄 Refresh';
+    refreshBtn.className = 'px-3 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded text-sm hover:bg-green-500/30 transition-colors flex items-center';
+    refreshBtn.innerHTML = this.createIcon('line-md:rotate-270', 16) + '<span class="ml-1">Refresh</span>';
     refreshBtn.addEventListener('click', () => {
       this.triggerControllerRequests();
     });
@@ -1970,7 +2078,321 @@ class Table {
     return section;
   }
 
+  createConsoleTasksView() {
+    const container = document.createElement('div');
+    container.className = 'h-full p-2 overflow-y-auto';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'flex items-center justify-between mb-4';
+
+    const title = document.createElement('h3');
+    title.className = 'text-lg font-medium text-green-400 flex items-center';
+    title.innerHTML = this.createIcon('line-md:list-3', 18) + '<span class="ml-2">Tasks</span>';
+
+    const clearBtn = document.createElement('button');
+    clearBtn.className = 'px-3 py-2 bg-red-500/20 text-red-400 border border-red-500/30 rounded text-sm hover:bg-red-500/30 transition-colors flex items-center';
+    clearBtn.innerHTML = this.createIcon('line-md:remove', 16) + '<span class="ml-1">Clear All</span>';
+    clearBtn.addEventListener('click', () => {
+      this.taskHistory = [];
+      this.renderConsoleTasksView();
+    });
+
+    header.appendChild(title);
+    header.appendChild(clearBtn);
+
+    // Tasks content
+    const tasksContent = document.createElement('div');
+    tasksContent.setAttribute('id', 'console-tasks-content');
+    tasksContent.className = 'space-y-2';
+
+    container.appendChild(header);
+    container.appendChild(tasksContent);
+
+    // Initial render
+    this.renderConsoleTasksView();
+
+    return container;
+  }
+
+  createConsoleWorkersView() {
+    const container = document.createElement('div');
+    container.className = 'h-full p-2 overflow-y-auto';
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'flex items-center justify-between mb-4';
+
+    const title = document.createElement('h3');
+    title.className = 'text-lg font-medium text-green-400 flex items-center';
+    title.innerHTML = this.createIcon('line-md:cog-loop', 18) + '<span class="ml-2">Workers</span>';
+
+    const addBtn = document.createElement('button');
+    addBtn.className = 'px-3 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded text-sm hover:bg-green-500/30 transition-colors flex items-center';
+    addBtn.innerHTML = this.createIcon('line-md:plus', 16) + '<span class="ml-1">New Worker</span>';
+    addBtn.addEventListener('click', () => {
+      this.showConsoleWorkerForm();
+    });
+
+    header.appendChild(title);
+    header.appendChild(addBtn);
+
+    // Workers content
+    const workersContent = document.createElement('div');
+    workersContent.setAttribute('id', 'console-workers-content');
+    workersContent.className = 'space-y-3';
+
+    // Worker form container
+    const formContainer = document.createElement('div');
+    formContainer.setAttribute('id', 'console-worker-form');
+    formContainer.className = 'mb-4 p-4 bg-gray-800/30 rounded border border-gray-700/50 hidden';
+
+    container.appendChild(header);
+    container.appendChild(formContainer);
+    container.appendChild(workersContent);
+
+    // Initial render
+    this.renderConsoleWorkersView();
+
+    return container;
+  }
+
+  renderConsoleTasksView() {
+    const content = document.getElementById('console-tasks-content');
+    if (!content) return;
+
+    if (this.taskHistory.length === 0) {
+      content.innerHTML = `
+        <div class="text-center py-8 text-gray-500">
+          <div class="mb-2">${this.createIcon('line-md:list-3', 32)}</div>
+          <div>No tasks yet</div>
+          <div class="text-xs mt-1">Tasks will appear here as you interact with the table</div>
+        </div>
+      `;
+      return;
+    }
+
+    // Group tasks by status
+    const grouped = {
+      pending: this.taskHistory.filter(t => t.status === 'pending'),
+      in_progress: this.taskHistory.filter(t => t.status === 'in_progress'),
+      completed: this.taskHistory.filter(t => t.status === 'completed')
+    };
+
+    let html = '';
+
+    // Create Kanban-style columns
+    Object.entries(grouped).forEach(([status, tasks]) => {
+      const statusColors = {
+        pending: 'text-yellow-400 bg-yellow-500/10 border-yellow-500/30',
+        in_progress: 'text-blue-400 bg-blue-500/10 border-blue-500/30',
+        completed: 'text-green-400 bg-green-500/10 border-green-500/30'
+      };
+
+      const statusLabels = {
+        pending: 'Pending',
+        in_progress: 'In Progress',
+        completed: 'Completed'
+      };
+
+      html += `
+        <div class="border border-gray-700/50 rounded-lg overflow-hidden">
+          <div class="px-3 py-2 bg-gray-800/50 border-b border-gray-700/50">
+            <h4 class="text-sm font-medium ${statusColors[status]} flex items-center">
+              ${this.createIcon('line-md:circle', 12)}
+              ${statusLabels[status]} (${tasks.length})
+            </h4>
+          </div>
+          <div class="p-3 space-y-2 max-h-48 overflow-y-auto">
+      `;
+
+      if (tasks.length === 0) {
+        html += `<div class="text-gray-500 text-sm text-center py-2">No ${status} tasks</div>`;
+      } else {
+        tasks.slice(-10).reverse().forEach(task => {
+          html += `
+            <div class="p-2 bg-gray-800/30 rounded border border-gray-700/30 text-sm">
+              <div class="font-medium text-green-300">${task.description}</div>
+              ${task.details ? `<div class="text-gray-400 text-xs mt-1">${task.details}</div>` : ''}
+              <div class="text-gray-500 text-xs mt-1">${this.formatTimestamp(task.timestamp)}</div>
+            </div>
+          `;
+        });
+      }
+
+      html += `
+          </div>
+        </div>
+      `;
+    });
+
+    content.innerHTML = html;
+  }
+
+  renderConsoleWorkersView() {
+    const content = document.getElementById('console-workers-content');
+    if (!content) return;
+
+    if (this.workers.length === 0) {
+      content.innerHTML = `
+        <div class="text-center py-8 text-gray-500">
+          <div class="mb-2">${this.createIcon('line-md:cog-loop', 32)}</div>
+          <div>No workers configured</div>
+          <div class="text-xs mt-1">Click "New Worker" to create your first worker</div>
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+    this.workers.forEach(worker => {
+      const statusColor = worker.enabled ? 'text-green-400' : 'text-gray-500';
+      const statusIcon = worker.enabled ? 'line-md:circle-filled' : 'line-md:circle';
+      
+      html += `
+        <div class="p-2 bg-gray-800/30 rounded border border-gray-700/50 mb-1">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+              <span class="${statusColor}">${this.createIcon(statusIcon, 8)}</span>
+              <span class="text-xs text-green-300">${worker.name}</span>
+              <span class="text-xs px-1 py-0.5 bg-blue-500/20 text-blue-400 rounded">${worker.type}</span>
+            </div>
+            <div class="flex space-x-1">
+              <button onclick="table.editConsoleWorker('${worker.id}')" class="text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-blue-500/10 text-xs flex items-center">
+                ${this.createIcon('line-md:edit', 12)} <span class="ml-1">Edit</span>
+              </button>
+              <button onclick="table.toggleWorker('${worker.id}')" class="text-yellow-400 hover:text-yellow-300 px-2 py-1 rounded hover:bg-yellow-500/10 text-xs flex items-center">
+                ${this.createIcon('line-md:switch', 12)} <span class="ml-1">${worker.enabled ? 'Disable' : 'Enable'}</span>
+              </button>
+              <button onclick="table.deleteWorker('${worker.id}')" class="text-red-400 hover:text-red-300 px-2 py-1 rounded hover:bg-red-500/10 text-xs flex items-center">
+                ${this.createIcon('line-md:remove', 12)} <span class="ml-1">Delete</span>
+              </button>
+            </div>
+          </div>
+          <div class="text-xs text-gray-500 mt-1 truncate">
+            ${worker.triggers.slice(0, 3).join(', ')}${worker.triggers.length > 3 ? '...' : ''}
+          </div>
+        </div>
+      `;
+    });
+
+    content.innerHTML = html;
+  }
+
+  showConsoleWorkerForm(worker = null) {
+    const formContainer = document.getElementById('console-worker-form');
+    if (!formContainer) return;
+
+    formContainer.className = 'mb-2 p-2 bg-gray-800/30 rounded border border-gray-700/50';
+    formContainer.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <h4 class="text-sm font-medium text-green-400 flex items-center">
+          ${this.createIcon('line-md:cog-loop', 16)} <span class="ml-2">${worker ? 'Edit Worker' : 'New Worker'}</span>
+        </h4>
+        <button onclick="table.hideConsoleWorkerForm()" class="text-gray-400 hover:text-red-400 p-2 rounded hover:bg-red-500/10">
+          ${this.createIcon('line-md:close', 16)}
+        </button>
+      </div>
+      
+      <form id="console-worker-form-element" class="space-y-2">
+        <div class="grid grid-cols-2 gap-2">
+          <div>
+            <input type="text" name="name" value="${worker?.name || ''}" placeholder="Worker name" 
+                   class="w-full px-2 py-1 bg-gray-700/50 border border-gray-600 rounded text-xs text-white placeholder-gray-400 focus:border-green-500 focus:outline-none">
+          </div>
+          <div>
+            <select name="type" class="w-full px-2 py-1 bg-gray-700/50 border border-gray-600 rounded text-xs text-white focus:border-green-500 focus:outline-none">
+              <option value="api" ${worker?.type === 'api' ? 'selected' : ''}>API</option>
+              <option value="storage" ${worker?.type === 'storage' ? 'selected' : ''}>Storage</option>
+            </select>
+          </div>
+        </div>
+        
+        <div>
+          <div class="grid grid-cols-3 gap-1 text-xs">
+            ${['cellChange', 'rowAdded', 'rowDeleted', 'autoSave', 'selectionChanged', 'tableRender'].map(trigger => `
+              <label class="flex items-center space-x-1 text-gray-300">
+                <input type="checkbox" name="triggers" value="${trigger}" 
+                       ${worker?.triggers?.includes(trigger) || !worker ? 'checked' : ''}
+                       class="w-3 h-3 rounded border-gray-600 bg-gray-700/50 text-green-500">
+                <span class="text-xs">${trigger.replace(/([A-Z])/g, ' $1').toLowerCase()}</span>
+              </label>
+            `).join('')}
+          </div>
+        </div>
+        
+        <div class="flex space-x-2 pt-2 border-t border-gray-700/50">
+          <button type="submit" class="flex-1 px-3 py-2 bg-green-500/20 text-green-400 border border-green-500/30 rounded text-sm hover:bg-green-500/30 transition-colors flex items-center justify-center">
+            ${this.createIcon('line-md:confirm', 14)} <span class="ml-1">${worker ? 'Update' : 'Create'}</span>
+          </button>
+          <button type="button" onclick="table.hideConsoleWorkerForm()" class="px-3 py-2 bg-gray-500/20 text-gray-400 border border-gray-500/30 rounded text-sm hover:bg-gray-500/30 transition-colors flex items-center">
+            ${this.createIcon('line-md:close', 14)} <span class="ml-1">Cancel</span>
+          </button>
+        </div>
+      </form>
+    `;
+
+    // Setup form submission
+    const form = document.getElementById('console-worker-form-element');
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      this.saveConsoleWorker(form, worker);
+    });
+  }
+
+  hideConsoleWorkerForm() {
+    const formContainer = document.getElementById('console-worker-form');
+    if (formContainer) {
+      formContainer.className = 'mb-4 p-4 bg-gray-800/30 rounded border border-gray-700/50 hidden';
+    }
+  }
+
+  saveConsoleWorker(form, existingWorker = null) {
+    const formData = new FormData(form);
+    const triggers = Array.from(form.querySelectorAll('input[name="triggers"]:checked')).map(cb => cb.value);
+    
+    const worker = {
+      id: existingWorker?.id || this.generateWorkerId(),
+      name: formData.get('name'),
+      type: formData.get('type'),
+      triggers,
+      enabled: existingWorker?.enabled ?? true,
+      config: existingWorker?.config || {},
+      createdAt: existingWorker?.createdAt || new Date(),
+      updatedAt: new Date()
+    };
+
+    if (existingWorker) {
+      const index = this.workers.findIndex(w => w.id === existingWorker.id);
+      if (index !== -1) {
+        this.workers[index] = worker;
+      }
+    } else {
+      this.workers.push(worker);
+    }
+
+    this.hideConsoleWorkerForm();
+    this.renderConsoleWorkersView();
+    this.updateActivityBadge('workers');
+
+    this.emit('workerSaved', {
+      worker,
+      isNew: !existingWorker,
+      table: this
+    });
+  }
+
+  editConsoleWorker(workerId) {
+    const worker = this.workers.find(w => w.id === workerId);
+    if (worker) {
+      this.showConsoleWorkerForm(worker);
+    }
+  }
+
   async triggerControllerRequests() {
+    // Update controller activity badge
+    this.updateActivityBadge('controller');
+    
     const statusDiv = document.getElementById('controller-status');
     if (statusDiv) {
       statusDiv.innerHTML = `
@@ -2175,15 +2597,100 @@ class Table {
     const content = this.console.querySelector('#console-content');
     const toggleBtn = this.console.querySelector('button');
     
-    if (content.style.display === 'none') {
-      content.style.display = 'flex';
-      toggleBtn.innerHTML = '▼';
-      this.console.style.height = '320px';
+    // Check current state
+    const isCollapsed = content.style.display === 'none' || this.console.classList.contains('console-collapsed');
+    
+    if (isCollapsed) {
+      // Expand console
+      this.expandConsole();
     } else {
-      content.style.display = 'none';
-      toggleBtn.innerHTML = '▲';
-      this.console.style.height = '40px';
+      // Collapse console
+      this.collapseConsole();
     }
+  }
+
+  expandConsole() {
+    if (!this.console) return;
+    
+    const content = this.console.querySelector('#console-content');
+    const toggleBtn = this.console.querySelector('button');
+    
+    // Remove collapsed class and add expanding class
+    this.console.classList.remove('console-collapsed');
+    this.console.classList.add('console-expanding');
+    
+    // Set styles for animation
+    this.console.style.transition = 'height 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+    this.console.style.height = '300px';
+    this.console.style.transform = 'translateY(0)';
+    
+    // Show content with fade in
+    content.style.display = 'block';
+    content.style.opacity = '0';
+    content.style.transition = 'opacity 0.2s ease-in-out';
+    
+    // Update button
+    toggleBtn.innerHTML = '<iconify-icon icon="line-md:chevron-down" width="18" height="18"></iconify-icon>';
+    
+    // Animate content fade in
+    setTimeout(() => {
+      content.style.opacity = '1';
+    }, 100);
+    
+    // Clean up classes after animation
+    setTimeout(() => {
+      this.console.classList.remove('console-expanding');
+    }, 300);
+  }
+
+  collapseConsole() {
+    if (!this.console) return;
+    
+    const content = this.console.querySelector('#console-content');
+    const toggleBtn = this.console.querySelector('button[title*="Toggle"]');
+    
+    // Add collapsing class
+    this.console.classList.add('console-collapsing');
+    
+    // Set styles for animation
+    this.console.style.transition = 'height 0.3s cubic-bezier(0.4, 0, 0.2, 1), transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)';
+    
+    // Fade out content first
+    content.style.transition = 'opacity 0.15s ease-in-out';
+    content.style.opacity = '0';
+    
+    // Update button
+    toggleBtn.innerHTML = '<iconify-icon icon="line-md:chevron-up" width="18" height="18"></iconify-icon>';
+    
+    // After content fades out, collapse console (keep header with tabs visible)
+    setTimeout(() => {
+      this.console.style.height = '48px';
+      this.console.style.transform = 'translateY(0)';
+      content.style.display = 'none';
+    }, 150);
+    
+    // Clean up classes and add collapsed class
+    setTimeout(() => {
+      this.console.classList.remove('console-collapsing');
+      this.console.classList.add('console-collapsed');
+    }, 300);
+  }
+
+  setupConsoleKeyboardShortcuts() {
+    // ESC key to toggle console
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        // Only toggle console if no modals or sheets are open
+        const hasOpenModals = document.querySelector('.row-sheet-overlay') || 
+                             document.querySelector('.expanded-sheet-overlay') ||
+                             document.querySelector('[data-worker-form="true"]');
+        
+        if (!hasOpenModals) {
+          e.preventDefault();
+          this.toggleConsole();
+        }
+      }
+    });
   }
 
   setupConsoleListeners() {
@@ -2195,7 +2702,58 @@ class Table {
       
       // Log to console
       this.logToConsole(eventType, data);
+      
+      // Update activity badges
+      this.updateActivityBadge('runner');
     };
+  }
+
+  updateActivityBadge(tabId) {
+    const badge = document.querySelector(`[data-tab-badge="${tabId}"]`);
+    if (!badge) return;
+
+    // Increment counter
+    this.activityCounters[tabId]++;
+    
+    // Show minimal dot badge
+    badge.style.transform = 'scale(1)';
+    badge.style.opacity = '1';
+    
+    // Add subtle pulse
+    badge.style.animation = 'pulse 0.8s ease-in-out';
+    
+    // Remove animation after pulse
+    setTimeout(() => {
+      badge.style.animation = 'none';
+    }, 800);
+    
+    // Reset badge after 5 seconds if tab is active
+    if (!this.console.classList.contains('console-collapsed') && this.activeConsoleTab === tabId) {
+      setTimeout(() => {
+        this.resetActivityBadge(tabId);
+      }, 5000);
+    }
+  }
+
+  resetActivityBadge(tabId) {
+    const badge = document.querySelector(`[data-tab-badge="${tabId}"]`);
+    if (!badge) return;
+
+    // Fade out and scale down
+    badge.style.transition = 'transform 0.3s ease-out, opacity 0.3s ease-out';
+    badge.style.transform = 'scale(0)';
+    badge.style.opacity = '0.5';
+    
+    setTimeout(() => {
+      this.activityCounters[tabId] = 0;
+      badge.textContent = '0';
+      badge.style.opacity = '1';
+    }, 300);
+  }
+
+  // Method to manually trigger controller activity
+  triggerControllerActivity() {
+    this.updateActivityBadge('controller');
   }
 
   logToConsole(eventType, data) {
@@ -2241,7 +2799,7 @@ class Table {
       relevantWorkers.forEach((worker, index) => {
         const isLast = index === relevantWorkers.length - 1;
         const prefix = isLast ? '└──' : '├──';
-        const workerType = worker.type === 'api' ? '🌐' : '💾';
+        const workerType = worker.type === 'api' ? '<iconify-icon icon="line-md:cloud-outline-loop" width="12" height="12"></iconify-icon>' : '<iconify-icon icon="line-md:computer" width="12" height="12"></iconify-icon>';
         
         logEntry += `
           <div class="text-green-300 ml-4">${prefix} ${workerType} ${worker.name}</div>
@@ -2378,17 +2936,18 @@ class Table {
       status,
       timestamp: new Date(),
       rowId: null,
-      rowIndex: null
+      collection: this.options.collectionName || null
     };
 
     this.taskHistory.push(task);
-    
-    // If tasks tab is active, re-render it
-    if (this.activeTab === 'tasks') {
-      this.renderTabContent();
-    }
 
-    this.emit('taskAdded', {
+    // Update tasks badge
+    this.updateActivityBadge('tasks');
+    
+    // Re-render tasks view if it exists
+    this.renderConsoleTasksView();
+
+    this.emit("taskAdded", {
       task,
       totalTasks: this.taskHistory.length,
       table: this
@@ -2403,18 +2962,20 @@ class Table {
       task.status = newStatus;
       task.updatedAt = new Date();
       
-      // Re-render tasks view if active
-      if (this.activeTab === 'tasks') {
-        this.renderTabContent();
-      }
+      // Re-render tasks view if it exists
+      this.renderConsoleTasksView();
 
       this.emit('taskStatusChanged', {
         task,
         previousStatus: task.status,
         newStatus,
+        totalTasks: this.taskHistory.length,
         table: this
       });
+
+      return task;
     }
+    return null;
   }
 
   generateTaskId() {
@@ -2474,10 +3035,13 @@ class Table {
     title.textContent = 'Worker Management';
 
     const addWorkerBtn = document.createElement('button');
+    addWorkerBtn.type = 'button';
     addWorkerBtn.className = 'px-4 py-2 bg-blue-500 text-white rounded-md hover:bg-blue-600 text-sm font-medium';
-    addWorkerBtn.innerHTML = '➕ Ny Worker';
-    addWorkerBtn.addEventListener('click', () => {
+    addWorkerBtn.innerHTML = this.createIcon('line-md:plus') + ' Ny Worker';
+    addWorkerBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       this.showWorkerForm();
+      return false;
     });
 
     header.appendChild(title);
@@ -2580,24 +3144,33 @@ class Table {
     actions.className = 'flex space-x-2';
 
     const editBtn = document.createElement('button');
+    editBtn.type = 'button';
     editBtn.className = 'text-blue-600 hover:text-blue-800 text-xs';
     editBtn.textContent = 'Rediger';
-    editBtn.addEventListener('click', () => {
+    editBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       this.editWorker(worker.id);
+      return false;
     });
 
     const toggleBtn = document.createElement('button');
+    toggleBtn.type = 'button';
     toggleBtn.className = `text-xs ${worker.enabled ? 'text-red-600 hover:text-red-800' : 'text-green-600 hover:text-green-800'}`;
     toggleBtn.textContent = worker.enabled ? 'Deaktiver' : 'Aktiver';
-    toggleBtn.addEventListener('click', () => {
+    toggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       this.toggleWorker(worker.id);
+      return false;
     });
 
     const deleteBtn = document.createElement('button');
+    deleteBtn.type = 'button';
     deleteBtn.className = 'text-red-600 hover:text-red-800 text-xs';
     deleteBtn.textContent = 'Slett';
-    deleteBtn.addEventListener('click', () => {
+    deleteBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       this.deleteWorker(worker.id);
+      return false;
     });
 
     actions.appendChild(editBtn);
@@ -2747,8 +3320,10 @@ class Table {
     cancelBtn.type = 'button';
     cancelBtn.className = 'px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50';
     cancelBtn.textContent = 'Avbryt';
-    cancelBtn.addEventListener('click', () => {
+    cancelBtn.addEventListener('click', (e) => {
+      e.preventDefault();
       this.hideWorkerForm();
+      return false;
     });
 
     const saveBtn = document.createElement('button');
@@ -2784,6 +3359,7 @@ class Table {
     form.addEventListener('submit', (e) => {
       e.preventDefault();
       this.saveWorker(form, worker);
+      return false;
     });
   }
 
@@ -2945,8 +3521,16 @@ class Table {
       });
     };
 
-    handlerTab.addEventListener('click', () => switchTab('handler'));
-    controllerTab.addEventListener('click', () => switchTab('controller'));
+    handlerTab.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchTab('handler');
+      return false;
+    });
+    controllerTab.addEventListener('click', (e) => {
+      e.preventDefault();
+      switchTab('controller');
+      return false;
+    });
 
     tabsContainer.appendChild(tabNav);
     tabsContainer.appendChild(tabContent);
@@ -2962,11 +3546,12 @@ class Table {
     const description = document.createElement('div');
     description.className = 'text-sm text-gray-600 bg-blue-50 p-3 rounded-md';
     description.innerHTML = `
-      <strong>Handler:</strong> Håndterer CRUD operasjoner (Create, Read, Update, Delete) ved å sende data til API endpoint.
+      <strong>Handler:</strong> Håndterer CRUD operasjoner (Create, Read, Update, Delete) ved å sende data til API endpoint.<br>
+      <strong>URL Templates:</strong> Bruk variabler som {{eventType}}, {{collectionName}}, {{rowId}}, {{name}}, etc. i URL-en.
     `;
 
     // Handler configuration
-    const urlField = this.createFormField('url', 'handler_url', 'Handler URL', worker?.config?.handler?.url || '', 'https://api.example.com/data');
+    const urlField = this.createFormField('url', 'handler_url', 'Handler URL', worker?.config?.handler?.url || '', 'https://api.example.com/{{eventType}}/{{collectionName}}');
     const methodField = this.createSelectField('handler_method', 'HTTP Method', ['POST', 'PUT', 'PATCH', 'DELETE'], worker?.config?.handler?.method || 'POST');
     const headersField = this.createTextareaField('handler_headers', 'Headers (JSON)', worker?.config?.handler?.headers ? JSON.stringify(worker.config.handler.headers, null, 2) : '{\n  "Content-Type": "application/json",\n  "Authorization": "Bearer YOUR_TOKEN"\n}');
     const payloadField = this.createTextareaField('handler_payload', 'Payload Template (JSON)', worker?.config?.handler?.payload ? JSON.stringify(worker.config.handler.payload, null, 2) : '{\n  "action": "{{eventType}}",\n  "data": "{{eventData}}",\n  "timestamp": "{{timestamp}}",\n  "table": "{{collectionName}}"\n}');
@@ -3004,11 +3589,12 @@ class Table {
     const description = document.createElement('div');
     description.className = 'text-sm text-gray-600 bg-green-50 p-3 rounded-md';
     description.innerHTML = `
-      <strong>Controller:</strong> Henter data fra API for å verifisere at endringer ble lagret korrekt. Sammenligner lokale data med server data.
+      <strong>Controller:</strong> Henter data fra API for å verifisere at endringer ble lagret korrekt. Sammenligner lokale data med server data.<br>
+      <strong>URL Templates:</strong> Bruk variabler som {{eventType}}, {{collectionName}}, {{rowId}}, {{name}}, etc. i URL-en.
     `;
 
     // Controller configuration
-    const urlField = this.createFormField('url', 'controller_url', 'Controller URL', worker?.config?.controller?.url || '', 'https://api.example.com/data/verify');
+    const urlField = this.createFormField('url', 'controller_url', 'Controller URL', worker?.config?.controller?.url || '', 'https://api.example.com/{{eventType}}/{{collectionName}}/verify');
     const methodField = this.createSelectField('controller_method', 'HTTP Method', ['GET', 'POST'], worker?.config?.controller?.method || 'GET');
     const headersField = this.createTextareaField('controller_headers', 'Headers (JSON)', worker?.config?.controller?.headers ? JSON.stringify(worker.config.controller.headers, null, 2) : '{\n  "Content-Type": "application/json",\n  "Authorization": "Bearer YOUR_TOKEN"\n}');
     
